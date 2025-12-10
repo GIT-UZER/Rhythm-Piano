@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Six-Key Groove</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #121212;
+            color: #ffffff;
+            font-family: 'Arial', sans-serif;
+        }
+
+        #game-container {
+            width: 400px; /* Overall game width */
+            height: 600px; /* Overall game height */
+            border: 5px solid #444444;
+            border-radius: 10px;
+            background-color: #1e1e1e;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+
+        #lanes {
+            display: flex;
+            height: 100%;
+            position: relative;
+        }
+
+        .lane {
+            flex-grow: 1;
+            border-right: 1px solid #333333;
+            position: relative;
+        }
+
+        .lane:last-child {
+            border-right: none;
+        }
+
+        /* Note Receptor (The Hit Zone) */
+        #receptor-area {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 100px; /* Height of the piano key receptor */
+            display: flex;
+            background: linear-gradient(to bottom, rgba(0, 0, 0, 0.0) 0%, rgba(0, 0, 0, 0.7) 30%, rgba(0, 0, 0, 0.9) 100%);
+            z-index: 10;
+        }
+
+        .key-receptor {
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+            background-color: #333333;
+            border-right: 1px solid #555555;
+            color: #ffffff;
+            font-size: 1.2em;
+            font-weight: bold;
+            box-sizing: border-box;
+            transition: background-color 0.1s ease;
+        }
+
+        .key-receptor.active {
+            background-color: #1e87f0; /* Blue color when pressed */
+            box-shadow: 0 0 10px #1e87f0;
+        }
+
+        /* The scrolling notes */
+        .note {
+            position: absolute;
+            width: calc(100% / 6 - 2px); /* Matches lane width */
+            height: 30px;
+            background-color: #e63946; /* Red note color */
+            border-radius: 5px;
+            left: 0;
+            top: 0;
+            transition: opacity 0.1s ease;
+            transform: translateX(0); /* For positioning in the JS */
+            z-index: 5;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+        }
+
+        .note.missed {
+            opacity: 0.2;
+            background-color: #aaaaaa;
+        }
+
+        /* Scoring Feedback */
+        #score-display {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 1.5em;
+            z-index: 20;
+        }
+
+        #feedback {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 3em;
+            font-weight: bold;
+            color: #fca311;
+            opacity: 0;
+            transition: opacity 0.2s, transform 0.2s;
+            z-index: 30;
+            text-shadow: 0 0 10px #fca311;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Six-Key Groove: Piano Rhythm</h1>
+    <p>Use keys **A, S, D, J, K, L** to hit the notes!</p>
+    
+    <div id="game-container">
+        <div id="lanes">
+            </div>
+        
+        <div id="score-display">Score: 0</div>
+        <div id="feedback"></div>
+
+        <div id="receptor-area">
+            <div class="key-receptor" data-key="a">A</div>
+            <div class="key-receptor" data-key="s">S</div>
+            <div class="key-receptor" data-key="d">D</div>
+            <div class="key-receptor" data-key="j">J</div>
+            <div class="key-receptor" data-key="k">K</div>
+            <div class="key-receptor" data-key="l">L</div>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const GAME_SPEED = 0.5; // Pixels per millisecond (Higher = Faster)
+        const RECEPTOR_Y = 500; // Y position where notes must be hit (relative to container top)
+        const HIT_WINDOW = 50; // Max distance (in pixels) above/below RECEPTOR_Y for a hit
+        const LANE_KEYS = ['a', 's', 'd', 'j', 'k', 'l'];
+        const CONTAINER_HEIGHT = 600;
+
+        // --- GAME DATA (The Song) ---
+        // time: Time in milliseconds from the start of the song
+        // key: The key corresponding to the lane (index 0 to 5)
+        const SONG_DATA = [
+            // Simple Pattern
+            { time: 500, key: 'a' },
+            { time: 700, key: 's' },
+            { time: 900, key: 'd' },
+            { time: 1100, key: 'j' },
+            { time: 1300, key: 'k' },
+            { time: 1500, key: 'l' },
+
+            // Chord and Gap
+            { time: 2500, key: 'a' },
+            { time: 2500, key: 'l' },
+            { time: 3000, key: 's' },
+            { time: 3000, key: 'k' },
+            
+            // Alternating
+            { time: 4000, key: 'd' },
+            { time: 4200, key: 'j' },
+            { time: 4400, key: 'd' },
+            { time: 4600, key: 'j' },
+            { time: 4800, key: 'k' },
+
+            // Fast run
+            { time: 6000, key: 'a' },
+            { time: 6100, key: 's' },
+            { time: 6200, key: 'd' },
+            { time: 6300, key: 'j' },
+            { time: 6400, key: 'k' },
+            { time: 6500, key: 'l' },
+            { time: 6600, key: 'a' },
+            { time: 6700, key: 's' },
+        ];
+
+
+        // --- GAME STATE ---
+        let score = 0;
+        let lastTime = 0;
+        let startTime = null;
+        let notes = []; // Array of active note DOM elements
+        let songIndex = 0; // Current index in the SONG_DATA
+        let isPlaying = false;
+
+        // --- DOM Elements ---
+        const lanesElement = document.getElementById('lanes');
+        const scoreDisplay = document.getElementById('score-display');
+        const feedbackDisplay = document.getElementById('feedback');
+        const receptorElements = {};
+        document.querySelectorAll('.key-receptor').forEach(el => {
+            receptorElements[el.dataset.key] = el;
+        });
+
+        // --- GAME FUNCTIONS ---
+
+        function createNote(noteData) {
+            const note = document.createElement('div');
+            note.className = 'note';
+            
+            const keyIndex = LANE_KEYS.indexOf(noteData.key);
+            if (keyIndex === -1) return; // Guard
+            
+            // Calculate starting X position based on lane index
+            const laneWidth = 400 / 6;
+            const xOffset = keyIndex * laneWidth;
+            
+            note.style.transform = `translateX(${xOffset}px)`;
+            
+            // Store data on the DOM element
+            note.dataset.key = noteData.key;
+            note.dataset.time = noteData.time;
+            note.dataset.hit = 'false';
+            
+            lanesElement.appendChild(note);
+            notes.push(note);
+        }
+
+        function updateNotes(deltaTime) {
+            const distance = deltaTime * GAME_SPEED; // How far notes move this frame
+
+            notes.forEach(note => {
+                if (note.dataset.hit === 'true' || note.classList.contains('missed')) return;
+
+                // Get current top position, then update it
+                let currentY = parseFloat(note.style.top || '0');
+                currentY += distance;
+                note.style.top = currentY + 'px';
+
+                // Check for miss
+                if (currentY > RECEPTOR_Y + HIT_WINDOW) {
+                    note.classList.add('missed');
+                    note.dataset.hit = 'true';
+                    showFeedback('Miss');
+                    // Mark to be cleaned up later
+                }
+            });
+
+            // Clean up missed/hit notes that have scrolled off-screen
+            notes = notes.filter(note => {
+                const currentY = parseFloat(note.style.top || '0');
+                return currentY < CONTAINER_HEIGHT + 50; // Keep notes until they are far off
+            });
+        }
+
+        function checkHit(pressedKey) {
+            let hit = false;
+            
+            // Highlight the receptor key
+            const receptor = receptorElements[pressedKey];
+            if (receptor) {
+                receptor.classList.add('active');
+                setTimeout(() => receptor.classList.remove('active'), 100);
+            }
+
+            notes.forEach(note => {
+                // Check if the note matches the pressed key and hasn't been hit/missed
+                if (note.dataset.key === pressedKey && note.dataset.hit === 'false') {
+                    const noteY = parseFloat(note.style.top || '0');
+                    const distanceToReceptor = Math.abs(noteY - RECEPTOR_Y);
+
+                    if (distanceToReceptor <= HIT_WINDOW) {
+                        note.dataset.hit = 'true';
+                        note.remove(); // Remove note instantly on hit
+                        hit = true;
+
+                        // Calculate accuracy feedback
+                        let feedbackText = 'Good';
+                        let points = 50;
+                        if (distanceToReceptor < HIT_WINDOW * 0.4) {
+                            feedbackText = 'Great';
+                            points = 100;
+                        }
+                        if (distanceToReceptor < HIT_WINDOW * 0.1) {
+                            feedbackText = 'Perfect!';
+                            points = 300;
+                        }
+                        
+                        score += points;
+                        scoreDisplay.textContent = `Score: ${score}`;
+                        showFeedback(feedbackText);
+                    }
+                }
+            });
+        }
+
+        function showFeedback(text) {
+            feedbackDisplay.textContent = text;
+            feedbackDisplay.style.opacity = 1;
+            feedbackDisplay.style.transform = 'translate(-50%, -50%) scale(1.1)';
+
+            setTimeout(() => {
+                feedbackDisplay.style.opacity = 0;
+                feedbackDisplay.style.transform = 'translate(-50%, -50%) scale(1.0)';
+            }, 300);
+        }
+
+        function spawnNotes(currentTime) {
+            // Spawn any notes whose time has passed
+            while (songIndex < SONG_DATA.length && SONG_DATA[songIndex].time <= currentTime) {
+                createNote(SONG_DATA[songIndex]);
+                songIndex++;
+            }
+        }
+
+        // --- GAME LOOP ---
+        function gameLoop(timestamp) {
+            if (!isPlaying) return;
+
+            if (startTime === null) {
+                startTime = timestamp;
+                lastTime = timestamp;
+            }
+
+            const currentTime = timestamp - startTime;
+            const deltaTime = timestamp - lastTime;
+            lastTime = timestamp;
+
+            // 1. Spawn notes based on song time
+            spawnNotes(currentTime);
+
+            // 2. Move notes
+            updateNotes(deltaTime);
+
+            // 3. Continue loop
+            requestAnimationFrame(gameLoop);
+        }
+
+        // --- INPUT HANDLING ---
+        document.addEventListener('keydown', (e) => {
+            const key = e.key.toLowerCase();
+            if (LANE_KEYS.includes(key)) {
+                if (!e.repeat) { // Only trigger on initial press
+                    checkHit(key);
+                }
+                // Visual feedback (handled inside checkHit for simplicity)
+            }
+            if (key === ' ' && !isPlaying) {
+                // Start the game on spacebar press
+                isPlaying = true;
+                startTime = null; // Reset start time
+                songIndex = 0;   // Reset song
+                notes.forEach(n => n.remove());
+                notes = [];
+                score = 0;
+                scoreDisplay.textContent = 'Score: 0';
+                requestAnimationFrame(gameLoop);
+                showFeedback('START!');
+            }
+        });
+
+
+        // --- INITIALIZATION ---
+        function init() {
+            // Set up initial instructions
+            showFeedback('Press SPACE to Play!');
+            // Pre-spawn notes based on timing needed to reach the top of the screen
+            // Total distance a note travels = CONTAINER_HEIGHT (600px)
+            // Time to travel = Distance / Speed = 600 / 0.5 = 1200ms = 1.2s
+            // To make the first note appear at the top at 0ms song time, we must adjust.
+            
+            // For this simple version, we'll just wait for SPACE and spawn normally.
+        }
+
+        init();
+    </script>
+
+</body>
+</html>
